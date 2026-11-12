@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import assert from 'node:assert/strict';
-const dir=mkdtempSync(join(tmpdir(),'ynv-test-')),port=31000+Math.floor(Math.random()*1000),url=`http://127.0.0.1:${port}`;const proc=spawn(process.execPath,['--experimental-sqlite','server.mjs'],{cwd:new URL('.',import.meta.url),env:{...process.env,DATA_DIR:dir,PORT:String(port)},stdio:'pipe'});
+const dir=mkdtempSync(join(tmpdir(),'ynv-test-')),port=31000+Math.floor(Math.random()*1000),url=`http://127.0.0.1:${port}`;const proc=spawn(process.execPath,['--experimental-sqlite','server.mjs'],{cwd:new URL('.',import.meta.url),env:{...process.env,DATA_DIR:dir,PORT:String(port),YNV_ENABLE_ACCELERATED_REWARDS:'true'},stdio:'pipe'});
 let count=0;function ok(v,msg){assert.ok(v,msg);count++}async function api(path,body,token,expected=200){const r=await fetch(url+'/api/'+path,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();assert.equal(r.status,expected,`${path}: ${JSON.stringify(data)}`);count++;return data}
 try{let ready=false;for(let i=0;i<60;i++){try{const r=await fetch(url+'/api/offers');if(r.ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,80))}ok(ready,'Server avviato');
 const offers=(await api('offers')).offers;ok(offers.length===4,'Quattro offerte');
@@ -15,14 +15,19 @@ await api('register',{name:'Bad',email:'bad@demo.test',password:'demo-password-1
 await api('me',undefined,null,401);
 const offer=offers.find(o=>o.price_cents===20000);const day=new Date(Date.now()+3*86400000).toISOString().slice(0,10);
 const booking=await api('book',{offer_id:offer.id,date:day,credits_cents:0},b.token);ok(booking.cash_cents===20000,'Pagamento fittizio');ok(booking.commission_cents===4000,'Commissione 20%');ok(booking.cashback_cents===200,'Cashback 5% di commissione');ok(booking.referral_cents===400,'Referral 10% commissione');
+await api('post-due',{booking_id:booking.id},b.token,409);
 await api('post-demo',{booking_id:booking.id},b.token,409);
 await api('complete',{booking_id:booking.id},b.token);
+await api('post-due',{booking_id:booking.id},b.token,409);
 await api('post-demo',{booking_id:booking.id},b.token);
+await api('post-due',{booking_id:booking.id},b.token,409);
 await api('post-demo',{booking_id:booking.id},b.token,409);
+const rewards=await api('rewards',undefined,b.token);ok(rewards.rewards.some(x=>x.id===booking.id&&typeof x.due_date==='string'),'Calendario maturazione esposto');
 const mb=await api('me',undefined,b.token);ok(mb.wallet_cents===200,'Bruno cashback');const ma=await api('me',undefined,a.token);ok(ma.wallet_cents===400,'Alice referral');
 const second=await api('book',{offer_id:offer.id,date:day,credits_cents:150},b.token);ok(second.cash_cents===19850,'Crediti utilizzati');ok(second.cashback_cents===199,'Cashback quota cash');
 const afterSpend=await api('me',undefined,b.token);ok(afterSpend.wallet_cents===50,'Wallet scalato');
 await api('cancel',{booking_id:second.id},b.token);const afterCancel=await api('me',undefined,b.token);ok(afterCancel.wallet_cents===200,'Crediti ripristinati');await api('cancel',{booking_id:second.id},b.token,409);
 await api('book',{offer_id:offer.id,date:day,credits_cents:999999},b.token,400);
+await api('logout',{},b.token);await api('me',undefined,b.token,401);
 console.log(`PASS: ${count} assertions / HTTP status checks; invite chain, origin inheritance, booking, cashback, referral, replay and cancel`)
 }catch(e){console.error('FAIL after',count,'checks:',e);process.exitCode=1}finally{proc.kill();rmSync(dir,{recursive:true,force:true})}
