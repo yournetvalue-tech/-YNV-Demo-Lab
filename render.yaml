@@ -1,0 +1,15 @@
+# DEVELOPMENT BLUEPRINT ONLY — do not deploy publicly until authentication and persistence gates pass.
+# Persistent disks require a compatible paid Render service; do not silently switch to paid resources.
+services:
+  - type: web
+    name: ynv-demo-lab-private
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: node --version
+    startCommand: node --experimental-sqlite server.mjs
+    envVars:
+      - key: NODE_ENV
+        value: development
+# WARNING: free service has ephemeral filesystem; accounts/bookings may disappear on restart.
+# WARNING: demo auth is not hardened; do not share this deployment publicly.
